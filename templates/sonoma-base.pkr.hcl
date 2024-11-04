@@ -98,6 +98,7 @@ build {
       // Enable auto-login
       //
       // See https://github.com/xfreebird/kcpassword for details.
+      # TODO: CHANGE PASSWORD
       "echo '00000000: 19e0 2157 bbd0 b18f d1b9 1f' | sudo xxd -r - /etc/kcpassword",
       "sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser ${var.username}",
       // Disable screensaver at login screen
