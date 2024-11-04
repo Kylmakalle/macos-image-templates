@@ -210,14 +210,6 @@ build {
       "sudo xcodes select '${var.xcode_versions[0]}'",
     ]
   }
-  provisioner "shell" {
-    inline = [
-      # Uninstall Command Line Tools that were installed with brew
-      # All the SDKs are available in Xcode
-      "source ~/.bash_profile",
-      "sudo rm -rf /Library/Developer/CommandLineTools",
-    ]
-  }
   // check there is at least 30GB of free space and fail if not
   provisioner "shell" {
     inline = [
