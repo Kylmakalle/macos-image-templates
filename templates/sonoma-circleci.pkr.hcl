@@ -64,7 +64,8 @@ variable "xcode_runtimes" {
     ]
     "visionOS" = [
       "1.0",
-      "2.0"
+      # TODO: Enable when moving to Xcode 16.0 as mainstream
+      # "2.0"
     ]
   }
 }
@@ -89,6 +90,8 @@ source "tart-cli" "tart" {
   vm_name      = "sonoma-circleci"
   cpu_count    = 4
   memory_gb    = 8
+  # TODO: Enable when moving to Xcode 16.0 as mainstream
+  # disk_size_gb = 120
   disk_size_gb = 100
   ssh_password = var.password
   ssh_username = var.username
