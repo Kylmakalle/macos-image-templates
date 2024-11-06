@@ -38,10 +38,35 @@ variable "python_version" {
   default = "3.12"
 }
 
-variable "xcode_versions" {
+variable "xcodes" {
   type    = list(string)
-  # First version is default
-  default = ["15.2", "16"]
+  # First version (xcodes[0]) is default
+  default = [
+    "15.2",
+    "16",
+    # We need to install Xcode 16.1 in order to download runtimes
+    # We'll remove it later on to save disk space
+    "16.1",
+  ] 
+}
+
+variable "uninstall_xcode_16_1_after_runtime_downloads" {
+  type    = bool
+  default = true
+}
+
+variable "xcode_runtimes" {
+  type = map(list(string))
+  default = {
+    "iOS" = [
+      "17.2",
+      "18.0"
+    ]
+    "visionOS" = [
+      "1.0",
+      "2.0"
+    ]
+  }
 }
 
 variable "fastlane_gem_version" {
@@ -71,23 +96,49 @@ source "tart-cli" "tart" {
 }
 
 locals {
-  xcode_install_provisioners = [
-    for version in reverse(sort(var.xcode_versions)) : {
+  # Get all Xcode versions sorted in reverse order
+  xcode_versions = reverse(sort(var.xcodes))
+  
+  # Create installation steps for each Xcode version
+  xcode_install_commands = [
+    for version in local.xcode_versions : {
       type = "shell"
       inline = [
-        "source ~/.bash_profile",
-        "sudo xcodes install ${version} --experimental-unxip --path /Users/${var.username}/Downloads/Xcode_${version}.xip --select --empty-trash",
-        "INSTALLED_PATH=$(xcode-select -p)",
-        "CONTENTS_DIR=$(dirname $INSTALLED_PATH)",
-        "APP_DIR=$(dirname $CONTENTS_DIR)",
-        "sudo mv $APP_DIR /Applications/Xcode_${version}.app",
-        "sudo xcode-select -s /Applications/Xcode_${version}.app",
-        "xcodebuild -downloadPlatform iOS",
-        "xcodebuild -downloadPlatform visionOS",
-        "xcodebuild -runFirstLaunch",
-      ]
+          "source ~/.bash_profile",
+          "sudo xcodes install ${version} --experimental-unxip --path /Users/${var.username}/Downloads/Xcode_${version}.xip --select --empty-trash  --no-color",
+          "INSTALLED_PATH=$(xcode-select -p)",
+          "CONTENTS_DIR=$(dirname $INSTALLED_PATH)",
+          "APP_DIR=$(dirname $CONTENTS_DIR)",
+          "sudo mv $APP_DIR /Applications/Xcode_${version}.app",
+          "sudo xcode-select -s /Applications/Xcode_${version}.app",
+          "xcodebuild -runFirstLaunch",
+        ]
     }
   ]
+
+  runtime_pairs = flatten([
+    for platform, versions in var.xcode_runtimes : [
+      for version in versions : {
+        platform = platform
+        version  = version
+      }
+    ]
+  ])
+
+  xcode_runtime_provisioners = concat(
+    [
+      for pair in local.runtime_pairs : {
+        type = "shell"
+        inline = [
+          "source ~/.bash_profile",
+          "export DEVELOPER_DIR=/Applications/Xcode_16.1.app",
+          "xcodebuild -downloadPlatform ${pair.platform} -buildVersion ${pair.version}",
+          "xcrun simctl runtime list"
+          # "xcrun simctl runtime list | grep '${pair.platform} ${pair.version} ' || (echo 'Runtime ${pair.platform} ${pair.version} is missing' && exit 1)"
+        ]
+      }
+    ],
+  )
   node_install_provisioners = [
     for version in reverse(sort(var.node_versions)) : {
       type = "shell"
@@ -134,7 +185,7 @@ build {
       "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"",
       "eval \"$(/opt/homebrew/bin/brew shellenv)\"",
       "brew analytics off",
-      "brew install autoconf ca-certificates carthage gettext git git-lfs jq libidn2 libunistring libyaml m4 nvm oniguruma openssl@3 pcre2 pyenv rbenv readline ruby-build wget xz yarn temurin xcodesorg/made/xcodes",
+      "brew install aria2 autoconf ca-certificates carthage chruby gettext git git-lfs jq libidn2 libunistring libyaml m4 nvm oniguruma openssl@3 pcre2 pyenv rbenv readline ruby-build wget xz yarn temurin xcodesorg/made/xcodes",
     ]
   }
   # Ruby
@@ -195,20 +246,30 @@ build {
     ]
   }
   provisioner "file" {
-    sources     = [for version in var.xcode_versions : pathexpand("~/Downloads/Xcode_${version}.xip")]
+    sources     = [for version in local.xcode_versions : pathexpand("~/Xcode_${version}.xip")]
     destination = "/Users/${var.username}/Downloads/"
   }
   dynamic "provisioner" {
-    for_each = local.xcode_install_provisioners
+    for_each = local.xcode_install_commands
+    labels   = ["shell"]
+    content {
+      inline = provisioner.value.inline
+    }
+  }
+  dynamic "provisioner" {
+    for_each = local.xcode_runtime_provisioners
     labels   = ["shell"]
     content {
       inline = provisioner.value.inline
     }
   }
   provisioner "shell" {
-    inline = [
+    inline = var.uninstall_xcode_16_1_after_runtime_downloads ? [
       "source ~/.bash_profile",
-      "sudo xcodes select '${var.xcode_versions[0]}'",
+      "sudo rm -rf /Applications/Xcode_16.1.app",
+      "echo 'Xcode 16.1 uninstalled'"
+    ] : [
+      "echo 'Keeping Xcode 16.1'"
     ]
   }
   // check there is at least 30GB of free space and fail if not
